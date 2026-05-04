@@ -20,6 +20,11 @@ In production, the engine runs multiple modules including non-conformance manage
 
 ---
 
+<img width="1905" height="917" alt="2026-05-04 13_46_50-Configurações" src="https://github.com/user-attachments/assets/4e67f873-a271-43cb-951d-d7652e7166cf" />
+<img width="1900" height="911" alt="2026-05-04 13_47_31-Configurações" src="https://github.com/user-attachments/assets/49abc689-e9d3-41ad-a5e0-db5726abf358" />
+
+
+
 ## Stack
 
 | Layer | Technology |
