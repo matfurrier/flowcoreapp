@@ -33,11 +33,11 @@ In production, the engine runs multiple modules including non-conformance manage
 | Database | PostgreSQL 15 |
 | Auth | JWT (python-jose) · argon2id (argon2-cffi) |
 | Object storage | MinIO (S3-compatible) with presigned URLs |
-| PDF generation | WeasyPrint |
+| PDF generation | Jinja2 templates → xhtml2pdf |
 | Email | aiosmtplib (SMTP, async) |
 | Frontend | Next.js 15 (App Router) · TypeScript · ShadCN UI · Tailwind |
 | Forms | react-hook-form + Zod |
-| Containers | Docker Compose |
+| Containers | Docker Compose — non-root, dropped capabilities, read-only rootfs |
 
 ---
 
@@ -89,21 +89,26 @@ Each task carries a typed `form_data` JSONB payload. The shape is determined by 
 
 ### External identity
 
-Authentication delegates to an external identity service (any PostgreSQL-backed user store with argon2id-hashed passwords). The JWT carries `user_id`, `area`, `role`, plus identity claims — so authorization happens with **zero database roundtrip per request**. Token expiration: 8h.
+Authentication delegates to an external identity service (any PostgreSQL-backed user store with argon2id-hashed passwords). The JWT carries `user_id`, `area`, `role`, plus identity claims — so authorization happens with **zero database roundtrip per request**. Token expiration: 8h, with refresh-token rotation. Startup fails fast on a misconfigured secret rather than degrading silently in production, and legacy credential checks use constant-time comparison.
 
 ### Visibility models
 
-Three visibility patterns, configurable per stage:
+Four visibility patterns, configurable per stage:
 
 - **Department/group routing** (default) — task is visible to anyone in the matching area + role combination
 - **Specific user** — task assigned to a single named user
 - **Open** — visible to anyone with platform access
+- **Time-limited public link** — a signed, expiring token grants a named external collaborator access to one specific step with no account required; every action taken through the link is written to a separate, admin-only audit log
 
 Completed tasks always render read-only. Cross-area access returns `403`.
 
 ### Attachments via presigned URLs
 
 The frontend never proxies binary data through the API. MinIO presigned URLs go direct from the browser. The backend's only role is authorizing the URL grant. This keeps the API tier lean and stateless even when users are uploading large files.
+
+### Deadline monitoring and notifications
+
+A background sweep checks open tasks against their configured deadline on an interval, flips a visual "expired" indicator in the UI, and raises an alert through the same event channel used for stage transitions — deadline tracking is a consumer of the engine's state changes, not a bolted-on cron job. Stage-assignment and completion emails render from pure, escaping-safe builder functions and dispatch asynchronously with per-recipient deduplication, so a step with several assignees or overlapping watchers never double-sends.
 
 ---
 
@@ -138,6 +143,10 @@ Because history is append-only, replaying it from `t=0` reconstructs any task's 
 ### Pydantic at the schema boundary, JSONB at the storage boundary
 
 Form payloads validate strictly at API ingress (Pydantic), then store as JSONB (flexible). This combines the safety of typed forms with the schema flexibility of NoSQL — without giving up SQL's transactional guarantees.
+
+### Read-only ERP mirror for live lookups
+
+Autocomplete widgets (supplier, product, batch/lot) query a dedicated async, read-only connection pool against a mirrored ERP database — never the system of record directly. Lookups stay fast without any risk of a reporting query touching transactional writes.
 
 ---
 
